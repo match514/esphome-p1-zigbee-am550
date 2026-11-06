@@ -1,0 +1,143 @@
+# ESP32-H2 : lecteur P1 (AM550) -> Zigbee, avec ESPHome
+# Prérequis : p1_decoder.h dans le même dossier que ce fichier.
+# Câblage : P1 pin 5 (Data) -> GPIO4 + pull-up 10k vers 3V3 ; voir le schéma donné plus haut.
+
+esphome:
+  name: compteur-p1
+  friendly_name: Compteur P1
+  includes:
+    - p1_decoder.h
+
+esp32:
+  variant: esp32h2
+  framework:
+    type: esp-idf
+
+logger:
+
+uart:
+  id: p1_uart
+  rx_pin:
+    number: GPIO4        # à adapter si tu as câblé une autre broche
+    inverted: true       # signal P1 inversé (collecteur ouvert)
+  baud_rate: 115200
+  rx_buffer_size: 2048
+
+zigbee:
+  id: zigbee_compteur
+  router: true
+  model: "Compteur-P1"
+  power_source: DC_SOURCE
+
+sensor:
+  - platform: template
+    id: p1_power
+    report: force
+    name: "Puissance"
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+
+  - platform: template
+    id: p1_energy_total
+    report: force
+    name: "Energie totale"
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 3
+
+  - platform: template
+    id: p1_energy_t1
+    report: force
+    name: "Energie tarif 1 (HP)"
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 3
+
+  - platform: template
+    id: p1_energy_t2
+    report: force
+    name: "Energie tarif 2 (HC)"
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 3
+
+  - platform: template
+    id: p1_v1
+    report: force
+    name: "Tension L1"
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+
+  - platform: template
+    id: p1_v2
+    report: force
+    name: "Tension L2"
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+
+  - platform: template
+    id: p1_v3
+    report: force
+    name: "Tension L3"
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+
+  - platform: template
+    id: p1_i1
+    report: force
+    name: "Courant L1"
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 2
+
+  - platform: template
+    id: p1_i2
+    report: force
+    name: "Courant L2"
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 2
+
+  - platform: template
+    id: p1_i3
+    report: force
+    name: "Courant L3"
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 2
+
+interval:
+  - interval: 20ms
+    then:
+      - lambda: |-
+          uint8_t b;
+          while (id(p1_uart).available()) {
+            if (id(p1_uart).read_byte(&b)) p1::feed(b);
+          }
+          p1::tick();
+          p1::Meter m;
+          if (p1::take(m)) {
+            id(p1_power).publish_state(m.power_w);
+            id(p1_energy_total).publish_state(m.e_total_kwh);
+            id(p1_energy_t1).publish_state(m.e_t1_kwh);
+            id(p1_energy_t2).publish_state(m.e_t2_kwh);
+            id(p1_v1).publish_state(m.v[0]);  id(p1_v2).publish_state(m.v[1]);  id(p1_v3).publish_state(m.v[2]);
+            id(p1_i1).publish_state(m.i[0]);  id(p1_i2).publish_state(m.i[1]);  id(p1_i3).publish_state(m.i[2]);
+            ESP_LOGI("p1", "P=%.0fW Etot=%.3f T1=%.3f T2=%.3f V=%.1f/%.1f/%.1f I=%.2f/%.2f/%.2f",
+                     m.power_w, m.e_total_kwh, m.e_t1_kwh, m.e_t2_kwh,
+                     m.v[0], m.v[1], m.v[2], m.i[0], m.i[1], m.i[2]);
+          }
